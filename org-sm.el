@@ -465,7 +465,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (json-parse-buffer))))
 
 (defun org-sm-apiclient-http-ping ()
-    (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" ""))
+   (org-sm-apiclient-http-response-p
+    (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "was-graded")))
 
 (defun org-sm-apiclient-http-response-result-eq (response result)
   (equal (gethash "result" response "false") result))
@@ -547,8 +548,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (gethash "Priority" (org-sm-apiclient-element-info)))
 
 (defun org-sm-apiclient-item-p ()
-  (let ((typestring (gethash "ElementType" (org-sm-apiclient-element-info))))
-    (equal "Item" typestring)))
+  (let ((type (gethash "ElementType" (org-sm-apiclient-element-info))))
+    (equal "Item" type)))
+
+(defun org-sm-apiclient-dismissed-p ()
+  (let ((status (gethash "ElementStatus" (org-sm-apiclient-element-info))))
+    (equal "Dismissed" status)))
+
+(defun org-sm-apiclient-dismiss ()
+   (org-sm-apiclient-http-response-p
+    (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "dismiss")))
 
 (defun org-sm-apiclient-store-element-id (id)
   (org-sm-apiclient-http-response-p
@@ -564,6 +573,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
      "set-element-content"
      (list (cons "text" content)))))
 
+(defun org-sm-apiclient-set-element-title (title)
+  (org-sm-apiclient-http-response-p
+    (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current
+     "POST"
+     "set-element-title"
+     (list (cons "text" title)))))
+
 (defun org-sm-apiclient-search-element-id (id)
   (org-sm-apiclient-http-response-p
    ; TODO Check to make sure id hasn't been used before?
@@ -574,6 +590,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 
 
+(defun org-sm-node-element-type-read-s (type-s)
+  "Prompts user to enter element type. Returns element type as string."
+  (interactive
+   (list
+    (completing-read "Choose Element Type: " '(":topic" ":item"))))
+  type-s)
+  
 (defun org-sm-node-priority-read (initial-priority)
   "Prompts user to enter priority"
   (let ((priority (read-number "Enter Priority: " initial-priority)))
@@ -581,32 +604,64 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                 (<= priority 0))
     priority)))
 
+(defun org-sm-capture-node-prepare-finalize-maybe-abort ()
+  (when (and org-note-abort
+             (org-capture-get :element-type))
+    (org-sm-apiclient-dismiss)))
+
+(defun org-sm-node-convert-and-export-at-point ()
+  "Converts org entry at point to SM node and exports to supermemo as element"
+  ; TODO verify that you're at a valid org entry at this point
+  (interactive)
+  (org-back-to-heading)
+  (let ((priority (org-sm-node-priority-read 33.3))
+        (type-s (call-interactively 'org-sm-node-element-type-read-s)))
+      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
+      (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
+      (org-sm-node-export-at-point)))
+
+(defun org-sm-node-export-at-point ()
+  "Exports node at point to supermemo as element"
+  (let ((content (buffer-substring-no-properties
+                  (org-element-property :contents-begin (org-element-at-point))
+                  (org-element-property :contents-end (org-element-at-point))))
+        (title (org-element-property :title (org-element-at-point)))
+        (id (org-id-get-create))
+        (tags (org-get-tags))
+        (priority (string-to-number (org-entry-get (point) "SM_PRIORITY")))
+        (type (intern (org-entry-get (point) "SM_ELEMENT_TYPE"))))
+    (add-to-list 'tags (substring (symbol-name type) 1))
+    (add-to-list 'tags "drill")
+    (org-set-tags tags)
+    (org-sm-apiclient-element-create type)
+    (org-sm-apiclient-set-priority (float priority))
+    (org-sm-apiclient-set-element-title title)
+    (org-sm-apiclient-store-element-id id)
+    (org-sm-apiclient-set-element-content content)))
+
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (org-capture-get :element-type)))
-    (let* ((capture-id (org-id-get-create))
-           (original-link (plist-get org-capture-plist :annotation))
-           (new-content (buffer-substring-no-properties (point-min) (point-max)))
+    (let* ((original-link (plist-get org-capture-plist :annotation))
            (original-description (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*\\)\\]\\]" "\\2" original-link))
            (_ (insert original-description))
            (priority (org-sm-node-priority-read 33.3)))
-      (org-sm-apiclient-element-create type)
-      (org-sm-apiclient-set-priority (float priority))
-      (org-sm-apiclient-store-element-id capture-id)
-      (org-sm-apiclient-set-element-content new-content)
+      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
+      (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
+      (org-sm-node-export-at-point)
       (org-sm-capture-do-to-original-buffer
        '(progn
-          (deactivate-mark)
-          (message "Created Extract with ID: %s\n" capture-id)))
-      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
-      (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type)))))
+          (deactivate-mark))))))
 
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-create)
+(add-hook 'org-capture-prepare-finalize-hook #'org-sm-capture-node-prepare-finalize-maybe-abort)
 
 ;; Add the extract templates
 (add-to-list 'org-capture-templates
       '("x" "extract" entry (file "~/org/extracts.org")
-        "* %? (extract) :topic:drill:\n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
-; TODO Make sure the extracts use org-id
+        "* %? (extract) \n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
+;TODO Make sure the extracts use org-id in their :annotations
+;TODO To fix this, I might need to do something to org-store-link
+;TODO It's really important that these links *just work*
  
 (defun org-sm-capture-do-to-original-buffer (fn)
   "Capture the active region of the pdf-view buffer."
@@ -620,22 +675,35 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "TODO Docstring"
   (interactive)
   (unwind-protect
-     ; TODO Verify that supermemo server is connected
     (when (region-active-p)
       ;; Group functions together to avoid inconsistent state on quit
       (atomic-change-group
+        (org-sm-apiclient-http-ping)
         (org-ov-highlight-blue)
         (org-capture nil "x")))
     (deactivate-mark)))
 
+;TODO Make the highlights local file info stuff hide in the PROPERTIES
+
+;TODO If the supermemo element has an id but there's no corresponding org-id, ask user if they want to delete the supermemo element
+
 ;TODO (defun org-sm-node-import-current-element ()
 ;  "Import current element information from SM."
+;TODO I need to make it obvious when an element has been imported or not, I need a hot key for "go to the current element in supermemo" that opens the import dialog if not found
+
+;TODO Make an export function:
+;TODO Make a function that takes an org entry/element at point and then adds it to supermemo and then adds the :drill: tag and stuff
+;TODO It will open a completion dialog with the element types (currently just topic and item)
+; This will be useful for when I'm in org capture or whatever, and I just made a note or something, and I want it tracked in supermemo
 
 ;TODO (defun org-sm-node-import-current-element ()
 ;  "Import current element information from SM."
 ; We need a function that will get run when org-sm doesn't detect that the element has an ID marked into it, or it doesn't detect an org-id matching it, it will ask the user if they would like to import it into emacs, this will open up a capture template, and that's what I'll work on next
+;TODO Make sure when you go-to element, you check that the element is dismissed or not
 
 (global-set-key (kbd "C-c x") 'org-sm-node-extract)
+(global-set-key (kbd "C-c s") 'org-sm-node-element-type-read-s)
+(global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point) ; TODO this is just fo rtesting, change key sym later
 
 (defun org-sm-new-sm-element-with-id (id)
   "Communicates to the SM api server to create a new element with title set to id."
