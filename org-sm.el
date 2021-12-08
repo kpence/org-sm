@@ -497,12 +497,19 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                     '(("none" . :none)
                       ("standard" . :standard)))))))
 
-(defun org-sm-apiclient-next-element ()
+(defun org-sm-apiclient-current-repetition ()
   "Returns whether the operation was success (therefore grade is ready.)"
    (org-sm-apiclient-http-response-p
     (if (eq (org-sm-apiclient-learning-mode) :none)
         (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "begin-learning")
       (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "next-element"))))
+
+(defun org-sm-apiclient-next-repetition ()
+  "Used to go to next repetition, only to be used to move forward from "
+   (org-sm-apiclient-http-response-p
+    (if (org-sm-apiclient-item-p)
+        (org-sm-apiclient-current-repetition)
+      (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "next-repetition"))))
 
 (defun org-sm-apiclient-element-info ()
   (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "element-info"))
@@ -551,8 +558,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (let ((type (gethash "ElementType" (org-sm-apiclient-element-info))))
     (equal "Item" type)))
 
-(defun org-sm-apiclient-dismissed-p ()
-  (let ((status (gethash "ElementStatus" (org-sm-apiclient-element-info))))
+(defun org-sm-apiclient-dismissed-p (&optional element-info)
+  (let ((status (gethash "ElementStatus" (or element-info (org-sm-apiclient-element-info)))))
     (equal "Dismissed" status)))
 
 (defun org-sm-apiclient-dismiss ()
@@ -588,8 +595,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
      "goto-first-element-with-comment"
      (list (cons "comment" (princ id))))))
 
-
-
 (defun org-sm-node-element-type-read-s (type-s)
   "Prompts user to enter element type. Returns element type as string."
   (interactive
@@ -620,6 +625,14 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
       (org-sm-node-export-at-point)))
 
+(defun org-sm-node-set-type-tags-at-point (type)
+  (save-excursion
+    (org-back-to-heading)
+    (let ((tags (org-get-tags)))
+      (add-to-list 'tags (substring (symbol-name type) 1))
+      (add-to-list 'tags "drill")
+      (org-set-tags tags))))
+
 (defun org-sm-node-export-at-point ()
   "Exports node at point to supermemo as element"
   (let ((content (buffer-substring-no-properties
@@ -627,12 +640,9 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                   (org-element-property :contents-end (org-element-at-point))))
         (title (org-element-property :title (org-element-at-point)))
         (id (org-id-get-create))
-        (tags (org-get-tags))
         (priority (string-to-number (org-entry-get (point) "SM_PRIORITY")))
         (type (intern (org-entry-get (point) "SM_ELEMENT_TYPE"))))
-    (add-to-list 'tags (substring (symbol-name type) 1))
-    (add-to-list 'tags "drill")
-    (org-set-tags tags)
+    (org-sm-node-set-type-tags-at-point type)
     (org-sm-apiclient-element-create type)
     (org-sm-apiclient-set-priority (float priority))
     (org-sm-apiclient-set-element-title title)
@@ -652,13 +662,40 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
        '(progn
           (deactivate-mark))))))
 
+(defun org-sm-capture-node-maybe-smimport ()
+    (when-let* ((element-info (org-capture-get :sm-import-element-info))
+                (type (cdr (assoc-string
+                            (downcase (gethash "ElementType" element-info "topic"))
+                            '(("topic" . :topic)
+                              ("item" . :item)))))
+                (priority (gethash "Priority" element-info ""))
+                (contents (gethash "Content" element-info ""))
+                (title (gethash "Title" element-info "Untitled Element Imported From SM")))
+      ; TODO make the contents rendered
+      ; TODO make sure if it's an item and you're ready-to-grade, it doesn't reveal the answer
+      (insert contents)
+      (org-sm-node-set-type-tags-at-point type)
+      (if-let ((id (org-capture-get :sm-import-id)))
+          (org-entry-put (point) "ID" id)
+          (org-sm-apiclient-store-element-id (org-id-get-create)))
+      (org-edit-headline title)
+      (org-entry-put (point) "SM_PRIORITY" priority)
+      (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))))
+
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-create)
+(add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-smimport)
 (add-hook 'org-capture-prepare-finalize-hook #'org-sm-capture-node-prepare-finalize-maybe-abort)
 
 ;; Add the extract templates
 (add-to-list 'org-capture-templates
       '("x" "extract" entry (file "~/org/extracts.org")
         "* %? (extract) \n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
+
+;; Add the extract templates
+(add-to-list 'org-capture-templates
+      '("s" "sm-import" entry (file "~/org/extracts.org")
+        "* \n%U\n\n%?\n" :clock-in t :clock-resume t))
+
 ;TODO Make sure the extracts use org-id in their :annotations
 ;TODO To fix this, I might need to do something to org-store-link
 ;TODO It's really important that these links *just work*
@@ -672,7 +709,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (user-error "Buffer %S not alive." orig-buf-name))))
 
 (defun org-sm-node-extract ()
-  "TODO Docstring"
+  "TODO Docstring. Remember to make note of the prefix argument for no-immediate-finish"
   (interactive)
   (unwind-protect
     (when (region-active-p)
@@ -680,8 +717,58 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (atomic-change-group
         (org-sm-apiclient-http-ping)
         (org-ov-highlight-blue)
-        (org-capture nil "x")))
+        (let* ((immediate-finish (not current-prefix-arg))
+              (org-capture-templates
+               (if immediate-finish
+                   (mapcar (lambda (template)
+                             (append template (list :immediate-finish t)))
+                           org-capture-templates)
+                 org-capture-templates)))
+          (org-capture nil "x"))))
     (deactivate-mark)))
+
+(defun org-sm-node-search-element-id-at-point ()
+  (interactive)
+  (when-let ((id (org-id-get)))
+    (message "id: %s" id)
+    (org-sm-apiclient-search-element-id id)))
+
+(defun org-sm-id-goto (id)
+  "Same as org-id-goto but returns t upon finding matching id, otherwise it returns nil."
+  (interactive "sID: ")
+  (when-let ((m (org-id-find id 'marker)))
+    (org-pop-to-buffer-same-window (marker-buffer m))
+    (goto-char m)
+    (move-marker m nil)
+    (org-show-context)
+    t))
+
+(defun org-sm-goto-current ()
+  (interactive)
+  (org-sm-apiclient-current-repetition)
+  (call-interactively 'org-sm-node-goto-element-id-or-smimport))
+
+(defun org-sm-goto-next ()
+  (interactive)
+  (org-sm-apiclient-next-repetition)
+  (org-sm-apiclient-current-repetition)
+  (call-interactively 'org-sm-node-goto-element-id-or-smimport))
+
+(defun org-sm-node-goto-element-id-or-smimport ()
+  "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
+  (interactive)
+  (let ((id (org-sm-apiclient-get-element-id)))
+    (message "original id is %s" id)
+    (when-let ((_ (or (not id) (not (org-sm-id-goto id))))
+               (element-info (org-sm-apiclient-element-info))
+               (_ (not (org-sm-apiclient-dismissed-p element-info)))
+               (org-capture-templates
+                (mapcar (lambda (template)
+                          (append template
+                                  (list :sm-import-element-info element-info)
+                                  (when id (list :sm-import-id id))))
+                          org-capture-templates)))
+      (org-capture nil "s"))))
 
 ;TODO Make the highlights local file info stuff hide in the PROPERTIES
 
@@ -702,7 +789,9 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ;TODO Make sure when you go-to element, you check that the element is dismissed or not
 
 (global-set-key (kbd "C-c x") 'org-sm-node-extract)
-(global-set-key (kbd "C-c s") 'org-sm-node-element-type-read-s)
+(global-set-key (kbd "C-c s") 'org-sm-goto-current)
+(global-set-key (kbd "C-c S") 'org-sm-goto-next)
+;(global-set-key (kbd "C-c S") 'org-sm-node-search-element-id-at-point)
 (global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point) ; TODO this is just fo rtesting, change key sym later
 
 (defun org-sm-new-sm-element-with-id (id)
