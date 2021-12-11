@@ -488,6 +488,14 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-apiclient-set-grade (grade)
   (org-sm-apiclient-http-response-p
+   (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current
+    "POST"
+    "set-grade"
+    (list (cons "grade" grade)))))
+
+(defun org-sm-apiclient-set-grade-s (grade)
+  ;TODO maybe i'm deprecating this...
+  (org-sm-apiclient-http-response-p
    (let ((gradepos (cl-position grade org-sm-grades)))
      (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current
       "POST"
@@ -514,10 +522,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-apiclient-next-repetition ()
   "Used to go to next repetition, only to be used to move forward from "
-   (org-sm-apiclient-http-response-p
-    (if (org-sm-apiclient-item-p)
-        (org-sm-apiclient-current-repetition)
-      (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "next-repetition"))))
+  (if (org-sm-apiclient-item-p)
+      (org-sm-apiclient-current-repetition)
+    (org-sm-apiclient-http-response-p
+     (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "next-repetition"))))
 
 (defun org-sm-apiclient-element-info ()
   (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "element-info"))
@@ -620,6 +628,14 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (completing-read "Choose Element Type: " '(":topic" ":item"))))
   type-s)
   
+(defun org-sm-node-grade-read (initial-grade)
+  "Prompts user to enter grade"
+  (let ((grade (read-number "Enter Grade (1-5): " initial-grade)))
+    (when (and (>= grade 1)
+               (<= grade 5)
+               (integerp grade))
+    (- grade 1))))
+  
 (defun org-sm-node-postpone-days-read (initial-days)
   "Prompts user to enter days"
   (let ((days (read-number "Enter New Interval (days): " initial-days)))
@@ -633,15 +649,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                 (<= priority 0))
     priority)))
 
-(defun org-sm-capture-node-prepare-finalize-maybe-abort ()
-  (when (and org-note-abort
-             (org-capture-get :element-type))
-    (org-sm-apiclient-dismiss)))
-
-(defun org-sm-capture-node-before-finalize-maybe-back-to-original-element ()
-  (when-let ((original-current-id (org-capture-get :sm-extract-original-current-id)))
-    (setq org-sm-node-current-id original-current-id)
-    (org-sm-apiclient-search-element-id original-current-id)))
+(defun org-sm-node-set-type-tags-at-point (type)
+  (save-excursion
+    (org-back-to-heading)
+    (let ((tags (org-get-tags)))
+      (add-to-list 'tags (substring (symbol-name type) 1))
+      (add-to-list 'tags "drill")
+      (org-set-tags tags))))
 
 (defun org-sm-node-convert-and-export-at-point ()
   "Converts org entry at point to SM node and exports to supermemo as element"
@@ -653,14 +667,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
       (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
       (org-sm-node-export-at-point)))
-
-(defun org-sm-node-set-type-tags-at-point (type)
-  (save-excursion
-    (org-back-to-heading)
-    (let ((tags (org-get-tags)))
-      (add-to-list 'tags (substring (symbol-name type) 1))
-      (add-to-list 'tags "drill")
-      (org-set-tags tags))))
 
 (defun org-sm-node-export-at-point (&optional extract-parent-id)
   "Exports node at point to supermemo as element. If EXTRACT-PARENT-ID is non-nil, it creates an extract."
@@ -682,6 +688,38 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     ;TODO (org-sm-apiclient-set-element-content content)
     ;TODO this causes race conditions that are annoying
     (org-sm-apiclient-store-element-id id)))
+
+(defun org-sm-capture-node-prepare-finalize-maybe-abort ()
+  (when (and org-note-abort
+             (org-capture-get :element-type))
+    (org-sm-apiclient-dismiss)))
+
+(defun org-sm-node-current-element-present-as-hidden-cloze-text (id)
+  (message "hiding item cloze")
+  (org-sm-unhide-text)
+  (org-sm-id-goto id)
+  (org-with-wide-buffer
+   (let* ((org-entry-beg (org-element-property :begin (org-element-at-point)))
+          (cloze-beg (string-match (regexp-quote "[[cloze:") (buffer-string) org-entry-beg))
+          (cloze-end (+ 3 (string-match (regexp-quote "]") (buffer-string) cloze-beg)))
+          (cloze-description-end (string-match (regexp-quote "]]") (buffer-string) cloze-end)))
+     (org-sm-hide-region cloze-beg cloze-end)
+     (org-sm-hide-region (+ 1 cloze-description-end) (+ 3 cloze-description-end)))))
+  
+(defun org-sm-capture-node-after-finalize-maybe-hide-cloze-text ()
+  ;TODO finish the docstring which describes what this is doing because it's confusing as fuck
+  "This fun is waiting for the immediate-finish org-capture for importing items to finish so that it can zip to the item in the file buffer and set the overlays for the item."
+  (when-let ((_ (and (org-capture-get :sm-import-item)
+                     (org-capture-get :immediate-finish)))
+             (id (org-capture-get :sm-import-id)))
+    (widen)
+    (message "After sm-import capture immediate finish item finalization. Id is: %s" id)
+    (org-sm-node-current-element-present-as-hidden-cloze-text id)))
+
+(defun org-sm-capture-node-before-finalize-maybe-back-to-original-element ()
+  (when-let ((original-current-id (org-capture-get :sm-extract-original-current-id)))
+    (setq org-sm-node-current-id original-current-id)
+    (org-sm-apiclient-search-element-id original-current-id)))
 
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (org-capture-get :element-type)))
@@ -709,27 +747,49 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                             '(("topic" . :topic)
                               ("item" . :item)))))
                 (priority (gethash "Priority" element-info ""))
-                (contents (org-web-tools--html-to-org-with-pandoc (gethash "Content" element-info "")))
+                (contents (org-web-tools--html-to-org-with-pandoc
+                           (let ((content (gethash "Content" element-info "")))
+                             (message "Sm-importing elem with content: %s" content)
+                             (if-let* ((_ (eq type :item))
+                                       (answer (gethash "Answer" element-info))
+                                       (display-text-beg (string-match
+                                                          "<SPAN class=cloze>"
+                                                          content))
+                                       (display-text-end (string-match
+                                                          "</SPAN>"
+                                                          content
+                                                          display-text-beg))
+                                       (left-string (substring content 0 display-text-beg))
+                                       (right-string (substring content (+ 7 display-text-end)))
+                                       (_ (message "before middle string"))
+                                       (middle-string (replace-regexp-in-string (regexp-quote "[") "{" (substring content (+ 18 display-text-beg) display-text-end)))
+                                       (_ (message "after first middle string"))
+                                       (middle-string (replace-regexp-in-string (regexp-quote "]") "}" middle-string)))
+                                 (concat left-string "[[cloze:" answer "][" middle-string "]]" right-string)
+                               content))))
                 (title (gethash "Title" element-info "Untitled Element Imported From SM")))
       ; TODO make sure if it's an item and you're ready-to-grade, it doesn't reveal the answer
       (save-excursion
-        (message "setting title: %s" title)
+        (message "In smimport capture and setting title: %s" title)
         (org-edit-headline title))
       (save-excursion
         (insert "\n" contents))
       (org-sm-node-set-type-tags-at-point type)
-      (if-let ((id (org-capture-get :sm-import-id)))
-          (org-entry-put (point) "ID" id)
-          (setq org-sm-node-current-id id)
-          (org-sm-apiclient-store-element-id (org-id-get-create)))
+      (if-let ((id (org-capture-get :sm-import-id))
+               (_ (message "Importing from sm and id is: %s" id)))
+          (and (org-entry-put (point) "ID" id)
+               (setq org-sm-node-current-id id))
+        (setq id (org-id-get-create))
+        (org-sm-apiclient-store-element-id id)
+        (org-capture-put :sm-import-id id))
       (org-entry-put (point) "SM_PRIORITY" priority)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))))
 
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-create)
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-smimport)
 (add-hook 'org-capture-prepare-finalize-hook #'org-sm-capture-node-prepare-finalize-maybe-abort)
+(add-hook 'org-capture-after-finalize-hook #'org-sm-capture-node-after-finalize-maybe-hide-cloze-text)
 (add-hook 'org-capture-before-finalize-hook #'org-sm-capture-node-before-finalize-maybe-back-to-original-element)
-
 
 ;; Add the extract templates
 (add-to-list 'org-capture-templates
@@ -792,7 +852,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (org-sm-apiclient-search-element-id id)))
 
 (defun org-sm-id-goto (id)
-  "Same as org-id-goto but returns t upon finding matching id, otherwise it returns nil."
   ;TODO look into ignore-errors
   (interactive "sID: ")
   (when-let ((m (org-id-find id 'marker)))
@@ -841,11 +900,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-goto-next ()
   (interactive)
-  (org-sm-apiclient-next-repetition)
-  (org-sm-apiclient-current-repetition)
-  (call-interactively 'org-sm-node-goto-element-id-or-smimport)
-  (evil--jumps-push)
-  (setq org-sm-node-current-id (org-roam-id-at-point))) ; TODO should i make this rely on org-roam?
+  (if (and (not (org-sm-apiclient-graded-p))
+           (org-sm-apiclient-ready-to-grade-p)
+           (org-sm-apiclient-item-p))
+      (org-sm-node-answer)
+    (org-sm-apiclient-next-repetition)
+    (message "next rep")
+    (org-sm-apiclient-current-repetition)
+    (call-interactively 'org-sm-node-goto-element-id-or-smimport)
+    (evil--jumps-push)
+    (setq org-sm-node-current-id (org-roam-id-at-point)))) ; TODO should i make this rely on org-roam?
 
 (defun org-sm-read-point-goto ()
   (interactive)
@@ -866,22 +930,66 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (goto-char pos)
         (bookmark-set bmark-name)))))
 
+(setplist 'org-sm-hidden-text-overlay
+          '(invisible t))
+
+(defun org-sm-node-answer ()
+  "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
+  (interactive)
+  ;(widen)
+  ;TODO WHY DOESNT THIS WORK (org-sm-id-goto org-sm-node-current-id)
+  (message "answer called")
+  (when (org-sm-apiclient-item-p)
+    (message "answering")
+    (org-sm-unhide-text)
+                                        ;TODO make it here now display the answer without the "cloze" syntax around, call it in the answer
+    (when org-link-descriptive (org-toggle-link-display))
+    (when-let* ((grade (org-sm-node-grade-read 3)))
+      (message "Grade selected: %s" grade)
+      (org-sm-apiclient-set-grade grade))))
+
+
+(defun org-sm-unhide-text ()
+  "Unhide text. (Same as org-drill-unhide-text)"
+  ;TODO make it also clear the displayed answer properly
+  (save-excursion
+    (org-with-wide-buffer
+     (dolist (ovl (overlays-in (point-min) (point-max)))
+       (when (eql 'org-sm-hidden-text-overlay (overlay-get ovl 'category))
+         (delete-overlay ovl))))))
+
+(defun org-sm-hide-region (beg end &optional text)
+  "Same as org-drill-hide-region."
+  (let ((ovl (make-overlay beg end)))
+    (overlay-put ovl 'category
+                 'org-sm-hidden-text-overlay)
+    (overlay-put ovl 'priority 9999)
+    (when (stringp text)
+      (overlay-put ovl 'invisible nil)
+      (overlay-put ovl 'face 'default)
+      (overlay-put ovl 'display text))))
+
 (defun org-sm-node-goto-element-id-or-smimport ()
   "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
   (interactive)
   (widen)
-  (let ((id (org-sm-apiclient-get-element-id)))
-    (message "original id is %s" id)
-    (when-let ((_ (or (not id) (not (org-sm-id-goto id))))
+  (let* ((itemp (org-sm-apiclient-item-p))
+         (sm-element-id (org-sm-apiclient-get-element-id))
+         (should-import (or (not sm-element-id) (not (org-sm-id-goto sm-element-id)))))
+    (message "Sm element's id is %s" sm-element-id)
+    (when-let ((_ should-import)
                (element-info (org-sm-apiclient-element-info))
                (_ (not (org-sm-apiclient-dismissed-p element-info)))
                (org-capture-templates
                 (mapcar (lambda (template)
                           (append template
                                   (list :sm-import-element-info element-info)
-                                  (when id (list :sm-import-id id))))
-                          org-capture-templates)))
-      (org-capture nil "s"))))
+                                  (when itemp (list :immediate-finish t :sm-import-item t))
+                                  (when sm-element-id (list :sm-import-id sm-element-id))))
+                        org-capture-templates)))
+      (org-capture nil "s"))
+    (when (and itemp (not should-import))
+      (org-sm-node-current-element-present-as-hidden-cloze-text sm-element-id))))
 
 (defun org-sm-maybe-capture-buffer-finalize ()
   "If buffer at point is a capture buffer, finalize it."
@@ -892,6 +1000,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-narrow-to-subtree)
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'outline-show-all)
 (advice-add 'org-sm-node-extract :after #'outline-show-all)
+(advice-add 'org-sm-read-point-goto :before #'org-sm-unhide-text)
 ;NEXT Make an advice that clocks in next supermemo elements
 ;NEXT Make an advice that clocks in current supermemo elements
 ;NEXT Make an advice that stops org-sm from clocking if it's during work hours
