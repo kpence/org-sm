@@ -620,6 +620,12 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (completing-read "Choose Element Type: " '(":topic" ":item"))))
   type-s)
   
+(defun org-sm-node-postpone-days-read (initial-days)
+  "Prompts user to enter days"
+  (let ((days (read-number "Enter New Interval (days): " initial-days)))
+    (when (and (<= 1 days) (integerp days))
+    days)))
+  
 (defun org-sm-node-priority-read (initial-priority)
   "Prompts user to enter priority"
   (let ((priority (read-number "Enter Priority: " initial-priority)))
@@ -828,6 +834,11 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (add-to-list 'tags "dismissed")
       (org-set-tags tags))))
 
+(defun org-sm-node-postpone ()
+  (interactive)
+  (when-let ((days (org-sm-node-postpone-days-read)))
+    (org-sm-apiclient-postpone days)))
+
 (defun org-sm-goto-next ()
   (interactive)
   (org-sm-apiclient-next-repetition)
@@ -915,6 +926,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "asg" 'org-sm-read-point-goto
   "asm" 'org-sm-read-point-set
   "asp" 'org-sm-node-set-priority
+  "asr" 'org-sm-node-postpone
   "asn" 'org-sm-goto-next
   "sn" 'org-sm-goto-next
   "ase" 'org-sm-goto-next)
