@@ -628,13 +628,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (completing-read "Choose Element Type: " '(":topic" ":item"))))
   type-s)
   
-(defun org-sm-node-grade-read (initial-grade)
+(defun org-sm-node-grade-read ()
   "Prompts user to enter grade"
-  (let ((grade (read-number "Enter Grade (1-5): " initial-grade)))
-    (when (and (>= grade 1)
-               (<= grade 5)
-               (integerp grade))
-    (- grade 1))))
+  (let ((input nil))
+    (while (not (memq (setq input (read-key "Enter Grade (1-5): "))
+                      (list ?1 ?2 ?3 ?4 ?5 7))))
+    (unless (eq input 7)
+      (- input ?1))))
   
 (defun org-sm-node-postpone-days-read (initial-days)
   "Prompts user to enter days"
@@ -655,7 +655,9 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (let ((tags (org-get-tags)))
       (add-to-list 'tags (substring (symbol-name type) 1))
       (add-to-list 'tags "drill")
-      (org-set-tags tags))))
+      (org-set-tags tags)
+      (message "Type tags SET at point"))))
+  
 
 (defun org-sm-node-convert-and-export-at-point ()
   "Converts org entry at point to SM node and exports to supermemo as element"
@@ -697,6 +699,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-node-current-element-present-as-hidden-non-answer-text (id)
   (message "hiding item cloze")
   (org-sm-unhide-text)
+  (widen)
   (org-sm-id-goto id)
   (org-with-wide-buffer
    (let* ((org-entry-beg (org-element-property :begin (org-element-at-point)))
@@ -708,6 +711,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-node-current-element-present-as-hidden-cloze-text (id)
   (message "hiding item cloze")
+  (widen)
   (org-sm-unhide-text)
   (org-sm-id-goto id)
   (org-with-wide-buffer
@@ -734,7 +738,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (org-sm-apiclient-search-element-id original-current-id)))
 
 (defun org-sm-capture-node-maybe-create ()
-  (when-let ((type (org-capture-get :element-type)))
+  (when-let ((type (plist-get org-capture-plist :element-type)))
     (let* ((original-link (plist-get org-capture-plist :annotation))
            (original-description
             (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*?\\)\\]\\]" "\\2" original-link))
@@ -753,49 +757,52 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
           (deactivate-mark))))))
 
 (defun org-sm-capture-node-maybe-smimport ()
-    (when-let* ((element-info (org-capture-get :sm-import-element-info))
-                (type (cdr (assoc-string
-                            (downcase (gethash "ElementType" element-info "topic"))
-                            '(("topic" . :topic)
-                              ("item" . :item)))))
-                (priority (gethash "Priority" element-info ""))
-                (contents (org-web-tools--html-to-org-with-pandoc
-                           (let ((content (gethash "Content" element-info "")))
-                             (message "Sm-importing elem with content: %s" content)
-                             (if-let* ((_ (eq type :item))
-                                       (answer (gethash "Answer" element-info))
-                                       (display-text-beg (string-match
-                                                          "<SPAN class=cloze>"
-                                                          content))
-                                       (display-text-end (string-match
-                                                          "</SPAN>"
-                                                          content
-                                                          display-text-beg))
-                                       (left-string (substring content 0 display-text-beg))
-                                       (right-string (substring content (+ 7 display-text-end)))
-                                       (_ (message "before middle string"))
-                                       (middle-string (replace-regexp-in-string (regexp-quote "[") "{" (substring content (+ 18 display-text-beg) display-text-end)))
-                                       (_ (message "after first middle string"))
-                                       (middle-string (replace-regexp-in-string (regexp-quote "]") "}" middle-string)))
-                                 (concat left-string "[[cloze:" answer "][" middle-string "]]" right-string)
-                               content))))
-                (title (gethash "Title" element-info "Untitled Element Imported From SM")))
-      ; TODO make sure if it's an item and you're ready-to-grade, it doesn't reveal the answer
-      (save-excursion
-        (message "In smimport capture and setting title: %s" title)
-        (org-edit-headline title))
-      (save-excursion
-        (insert "\n" contents))
-      (org-sm-node-set-type-tags-at-point type)
-      (if-let ((id (org-capture-get :sm-import-id))
-               (_ (message "Importing from sm and id is: %s" id)))
-          (and (org-entry-put (point) "ID" id)
-               (setq org-sm-node-current-id id))
-        (setq id (org-id-get-create))
-        (org-sm-apiclient-store-element-id id)
-        (org-capture-put :sm-import-id id))
-      (org-entry-put (point) "SM_PRIORITY" priority)
-      (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))))
+  (when-let* ((element-info (org-capture-get :sm-import-element-info))
+              (type (cdr (assoc-string
+                          (downcase (gethash "ElementType" element-info "topic"))
+                          '(("topic" . :topic)
+                            ("item" . :item)))))
+              (priority (gethash "Priority" element-info ""))
+              (contents (org-web-tools--html-to-org-with-pandoc
+                         (let ((content (gethash "Content" element-info "")))
+                           (message "Sm-importing elem with content: %s" content)
+                           (if-let* ((_ (eq type :item))
+                                     (answer (gethash "Answer" element-info))
+                                     (display-text-beg (string-match
+                                                        "<SPAN class=cloze>"
+                                                        content))
+                                     (display-text-end (string-match
+                                                        "</SPAN>"
+                                                        content
+                                                        display-text-beg))
+                                     (left-string (substring content 0 display-text-beg))
+                                     (right-string (substring content (+ 7 display-text-end)))
+                                     (_ (message "before middle string"))
+                                     (middle-string (replace-regexp-in-string (regexp-quote "[") "{" (substring content (+ 18 display-text-beg) display-text-end)))
+                                     (_ (message "after first middle string"))
+                                     (middle-string (replace-regexp-in-string (regexp-quote "]") "}" middle-string)))
+                               (concat left-string "[[cloze:" answer "][" middle-string "]]" right-string)
+                             content))))
+              (title (gethash "Title" element-info "Untitled Element Imported From SM")))
+    ; TODO make sure if it's an item and you're ready-to-grade, it doesn't reveal the answer
+    (save-excursion
+      (message "In smimport capture and setting title: %s" title)
+      (org-edit-headline title))
+    (save-excursion
+      (insert "\n" contents))
+    (org-sm-node-set-type-tags-at-point type)
+    (if-let ((id (org-capture-get :sm-import-id))
+             (_ (message "Importing from sm and id is: %s" id)))
+        (and (org-entry-put (point) "ID" id)
+             (setq org-sm-node-current-id id))
+      (message "TESTING, SMIMP 0 %s" (org-id-get-create))
+      (setq id (org-id-get-create))
+      (message "TESTING, SMIMP 1")
+      (org-sm-apiclient-store-element-id id)
+      (message "TESTING, SMIMP 2")
+      (org-capture-put :sm-import-id id))
+    (org-entry-put (point) "SM_PRIORITY" priority)
+    (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))))
 
 ;TODO I should only add these hooks in a lexical closure of these functions where they're used
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-create)
@@ -962,15 +969,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (when org-link-descriptive (org-toggle-link-display))
     (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
     (let* (successfully-graded)
-      (unwind-protect
-          (when-let* ((grade (org-sm-node-grade-read 3)))
-            (message "Grade selected: %s" grade)
-            (org-sm-apiclient-set-grade grade)
-            (setq successfully-graded t))
+      (if-let* ((grade (org-sm-node-grade-read)))
+          (and (org-sm-apiclient-set-grade grade)
+               (message "Grade sent: %s" (+ 1 grade))
+               (setq successfully-graded t))
         (unless successfully-graded
           (org-sm-unhide-text)
-          (org-sm-node-current-element-present-as-hidden-cloze-text org-sm-node-current-id)))))
-  (message "Graded"))
+          (org-sm-node-current-element-present-as-hidden-cloze-text org-sm-node-current-id))))))
 
 (defun org-sm-unhide-text ()
   "Unhide text. (Same as org-drill-unhide-text)"
