@@ -895,7 +895,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                           state)
                      (nth 2 (org-heading-components)))))
     (when (and (member "drill" (org-get-tags))
+               (message "Found drill in tags")
                (equal mystate "DONE")
+               (message "Found DONE in todo state")
+               (or (when (org-sm-apiclient-graded-p) (org-sm-apiclient-current-repetition)) t)
                (org-sm-node-search-element-id-at-point))
       (org-sm-node-dismiss-at-point))))
 
@@ -950,7 +953,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-node-answer ()
   "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
   (interactive)
-  ;(widen)
   (org-sm-id-goto org-sm-node-current-id)
   (message "answer called")
   (when (org-sm-apiclient-item-p)
@@ -967,7 +969,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
             (setq successfully-graded t))
         (unless successfully-graded
           (org-sm-unhide-text)
-          (org-sm-node-current-element-present-as-hidden-cloze-text org-sm-node-current-id))))))
+          (org-sm-node-current-element-present-as-hidden-cloze-text org-sm-node-current-id)))))
+  (message "Graded"))
 
 (defun org-sm-unhide-text ()
   "Unhide text. (Same as org-drill-unhide-text)"
