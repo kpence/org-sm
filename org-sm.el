@@ -472,6 +472,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
    (org-sm-apiclient-http-response-p
     (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "element-back")))
 
+(defun org-sm-apiclient-element-forward ()
+   (org-sm-apiclient-http-response-p
+    (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "element-forward")))
+
 (defun org-sm-apiclient-http-response-result-eq (response result)
   (equal (gethash "result" response "false") result))
 
@@ -539,6 +543,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
        (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "new-item"))
       (:topic
        (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "new-topic")))))
+
+(defun org-sm-apiclient-element-extract-create ()
+  (org-sm-apiclient-http-response-p
+   (org-sm-apiclient-http-with-sm-server-url-do-and-parse-current "GET" "extract")))
 
 (defun org-sm-apiclient-store-element-id (id)
   (org-sm-apiclient-http-response-p
@@ -625,9 +633,9 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (org-sm-apiclient-dismiss)))
 
 (defun org-sm-capture-node-before-finalize-maybe-back-to-original-element ()
-  (when-let ((original-id (org-capture-get :sm-extract-original-id)))
-    (org-sm-apiclient-element-back)
-    (setq org-sm-node-current-id original-id)))
+  (when-let ((original-current-id (org-capture-get :sm-extract-original-current-id)))
+    (setq org-sm-node-current-id original-current-id)
+    (org-sm-apiclient-search-element-id original-current-id)))
 
 (defun org-sm-node-convert-and-export-at-point ()
   "Converts org entry at point to SM node and exports to supermemo as element"
@@ -648,34 +656,42 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (add-to-list 'tags "drill")
       (org-set-tags tags))))
 
-(defun org-sm-node-export-at-point ()
-  "Exports node at point to supermemo as element"
+(defun org-sm-node-export-at-point (&optional extract-parent-id)
+  "Exports node at point to supermemo as element. If EXTRACT-PARENT-ID is non-nil, it creates an extract."
   (let ((content (buffer-substring-no-properties
                   (org-element-property :contents-begin (org-element-at-point))
                   (org-element-property :contents-end (org-element-at-point))))
         ;(title (org-element-property :title (org-element-at-point)))
         (id (or (org-roam-id-at-point) (org-id-get-create)))
-        (priority (string-to-number (org-entry-get (point) "SM_PRIORITY")))
+        (priority-s (org-entry-get (point) "SM_PRIORITY"))
         (type (intern (org-entry-get (point) "SM_ELEMENT_TYPE"))))
     (message "id: %s" id)
     (setq org-sm-node-current-id id)
     (org-sm-node-set-type-tags-at-point type)
+    (when extract-parent-id
+      (org-entry-put (point) "SM_EXTRACT_PARENT_ID" extract-parent-id))
     (org-sm-apiclient-element-create type)
-    (org-sm-apiclient-set-priority (float priority))
-    ;(org-sm-apiclient-set-element-title title)
-    (org-sm-apiclient-store-element-id id)
-    (message "content: %s" content)
-    (org-sm-apiclient-set-element-content content)))
+    (when priority-s
+      (org-sm-apiclient-set-priority (float (string-to-number priority))))
+    ;TODO (org-sm-apiclient-set-element-content content)
+    ;TODO this causes race conditions that are annoying
+    (org-sm-apiclient-store-element-id id)))
 
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (org-capture-get :element-type)))
     (let* ((original-link (plist-get org-capture-plist :annotation))
-           (original-description (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*\\)\\]\\]" "\\2" original-link))
+           (original-description
+            (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*?\\)\\]\\]" "\\2" original-link))
            (_ (insert original-description))
-           (priority (org-sm-node-priority-read 33.3)))
-      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
+           (parent-id (plist-get org-capture-plist :sm-extract-parent-id))
+           (priority-s (plist-get org-capture-plist :priority))
+           (_ (message "priority is: %s" priority-s))
+           (_ (when (plist-get org-capture-plist :ask-priority)
+                (setq priority-s (number-to-string (org-sm-node-priority-read (or priority-s "33")))))))
+      (message "extract-parent-id: %s" parent-id)
+      (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
-      (org-sm-node-export-at-point)
+      (org-sm-node-export-at-point parent-id)
       (org-sm-capture-do-to-original-buffer
        '(progn
           (deactivate-mark))))))
@@ -691,6 +707,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                 (title (gethash "Title" element-info "Untitled Element Imported From SM")))
       ; TODO make sure if it's an item and you're ready-to-grade, it doesn't reveal the answer
       (save-excursion
+        (message "setting title: %s" title)
         (org-edit-headline title))
       (save-excursion
         (insert "\n" contents))
@@ -719,6 +736,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         "* \n%U\n\n%?\n" :clock-in t :clock-resume t))
 
 ;TODO Make sure the extracts use org-id in their :annotations
+;TODO ^ for this read this: https://www.gnu.org/software/emacs/manual/html_node/org/Handling-Links.html
 ;TODO To fix this, I might need to do something to org-store-link
 ;TODO It's really important that these links *just work*
  
@@ -733,6 +751,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-node-extract ()
   "TODO Docstring. Remember to make note of the prefix argument for no-immediate-finish"
   (interactive)
+  (widen)
   (unwind-protect
     (when (region-active-p)
       ;; Group functions together to avoid inconsistent state on quit
@@ -740,16 +759,23 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-sm-apiclient-http-ping)
         (org-ov-highlight-blue)
         (let* ((immediate-finish (not current-prefix-arg))
-              (org-capture-templates
-               (if immediate-finish
-                   (mapcar (lambda (template)
-                             (append template
-                                     (list :immediate-finish t)
-                                     (list :sm-extract-original-id org-sm-node-current-id)))
-                           org-capture-templates)
-                 org-capture-templates)))
-          (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
-            (call-interactively 'org-sm-read-point-set))
+               (parent-id (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
+                            (call-interactively 'org-sm-read-point-set)
+                            org-sm-node-current-id))
+               ;(_ (message "parent id: %s. original-id: %s" parent-id org-sm-node-current-id))
+               (priority (or (org-entry-get (org-id-find parent-id t) "SM_PRIORITY") "33"))
+               (_ (message "priority is %s" priority))
+               (org-capture-templates
+                (if immediate-finish
+                    (mapcar (lambda (template)
+                              (append template
+                                      (list :immediate-finish t)
+                                      (list :sm-extract-original-current-id org-sm-node-current-id)
+                                      (list :sm-extract-parent-id parent-id)
+                                      (list :priority priority)
+                                      (when current-prefix-arg (list :ask-priority t))))
+                            org-capture-templates)
+                  org-capture-templates)))
           (org-capture nil "x"))))
     (deactivate-mark)))
 
@@ -761,6 +787,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-id-goto (id)
   "Same as org-id-goto but returns t upon finding matching id, otherwise it returns nil."
+  ;TODO look into ignore-errors
   (interactive "sID: ")
   (when-let ((m (org-id-find id 'marker)))
     (org-pop-to-buffer-same-window (marker-buffer m))
@@ -783,11 +810,30 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (call-interactively 'org-sm-node-goto-element-id-or-smimport)
   (setq org-sm-node-current-id (org-roam-id-at-point))) ; TODO should i make this rely on org-roam?
 
+(defun org-sm-node-maybe-dismiss-at-point ()
+  (interactive)
+  (let ((mystate (or (and (fboundp 'org-state)
+                          state)
+                     (nth 2 (org-heading-components)))))
+    (when (and (member "drill" (org-get-tags))
+               (equal mystate "DONE")
+               (org-sm-node-search-element-id-at-point))
+      (org-sm-node-dismiss-at-point))))
+
+(defun org-sm-node-dismiss-at-point ()
+  (interactive)
+  (when (org-sm-node-search-element-id-at-point)
+    (org-sm-apiclient-dismiss)
+    (let ((tags (org-get-tags)))
+      (add-to-list 'tags "dismissed")
+      (org-set-tags tags))))
+
 (defun org-sm-goto-next ()
   (interactive)
   (org-sm-apiclient-next-repetition)
   (org-sm-apiclient-current-repetition)
   (call-interactively 'org-sm-node-goto-element-id-or-smimport)
+  (evil--jumps-push)
   (setq org-sm-node-current-id (org-roam-id-at-point))) ; TODO should i make this rely on org-roam?
 
 (defun org-sm-read-point-goto ()
@@ -798,8 +844,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-read-point-set ()
   (interactive)
-  (when-let ((id org-sm-node-current-id))
-   (bookmark-set (concat "sm-" id))))
+  (when-let* ((id org-sm-node-current-id)
+             (bmark-name (concat "sm-" id))
+             (pos (point))
+             (buffer (if (string-prefix-p "CAPTURE-" (buffer-name))
+                         (org-capture-get :buffer)
+                       (current-buffer))))
+    (with-current-buffer buffer
+      (save-excursion
+        (goto-char pos)
+        (bookmark-set bmark-name)))))
 
 (defun org-sm-node-goto-element-id-or-smimport ()
   "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
@@ -822,9 +876,11 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "If buffer at point is a capture buffer, finalize it."
   (when (string-prefix-p "CAPTURE" (buffer-name (current-buffer))) (org-capture-finalize)))
   
+(add-hook 'org-after-todo-state-change-hook 'org-sm-node-maybe-dismiss-at-point 'append)
 (advice-add 'org-sm-goto-next :before #'org-sm-maybe-capture-buffer-finalize)
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-narrow-to-subtree)
-(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-narrow-to-subtree)
+(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'outline-show-all)
+(advice-add 'org-sm-node-extract :after #'outline-show-all)
 ;NEXT Make an advice that clocks in next supermemo elements
 ;NEXT Make an advice that clocks in current supermemo elements
 ;NEXT Make an advice that stops org-sm from clocking if it's during work hours
@@ -854,13 +910,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ;(global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point) ; TODO this is just fo rtesting, change key sym later
 
 (spacemacs/set-leader-keys
-  "asx" 'org-sm-node-extract
+  "ax" 'org-sm-node-extract
   "asc" 'org-sm-goto-current
   "asg" 'org-sm-read-point-goto
   "asm" 'org-sm-read-point-set
   "asp" 'org-sm-node-set-priority
   "asn" 'org-sm-goto-next
+  "sn" 'org-sm-goto-next
   "ase" 'org-sm-goto-next)
+
+(define-key evil-visual-state-map (kbd "C-x C-x") 'org-sm-node-extract)
 
 (defun org-sm-new-sm-element-with-id (id)
   "Communicates to the SM api server to create a new element with title set to id."
