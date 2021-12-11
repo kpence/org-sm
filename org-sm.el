@@ -694,6 +694,18 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
              (org-capture-get :element-type))
     (org-sm-apiclient-dismiss)))
 
+(defun org-sm-node-current-element-present-as-hidden-non-answer-text (id)
+  (message "hiding item cloze")
+  (org-sm-unhide-text)
+  (org-sm-id-goto id)
+  (org-with-wide-buffer
+   (let* ((org-entry-beg (org-element-property :begin (org-element-at-point)))
+          (cloze-beg (string-match (regexp-quote "[[cloze:") (buffer-string) org-entry-beg))
+          (cloze-end (+ 1 (string-match (regexp-quote "]") (buffer-string) cloze-beg)))
+          (cloze-description-end (string-match (regexp-quote "]]") (buffer-string) cloze-end)))
+     (org-sm-hide-region (+ 1 cloze-beg) (+ 9 cloze-beg))
+     (org-sm-hide-region cloze-end (+ 3 cloze-description-end)))))
+
 (defun org-sm-node-current-element-present-as-hidden-cloze-text (id)
   (message "hiding item cloze")
   (org-sm-unhide-text)
@@ -703,7 +715,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
           (cloze-beg (string-match (regexp-quote "[[cloze:") (buffer-string) org-entry-beg))
           (cloze-end (+ 3 (string-match (regexp-quote "]") (buffer-string) cloze-beg)))
           (cloze-description-end (string-match (regexp-quote "]]") (buffer-string) cloze-end)))
-     (org-sm-hide-region cloze-beg cloze-end)
+     (org-sm-hide-region (+ 1 cloze-beg) cloze-end)
      (org-sm-hide-region (+ 1 cloze-description-end) (+ 3 cloze-description-end)))))
   
 (defun org-sm-capture-node-after-finalize-maybe-hide-cloze-text ()
@@ -785,6 +797,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-entry-put (point) "SM_PRIORITY" priority)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))))
 
+;TODO I should only add these hooks in a lexical closure of these functions where they're used
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-create)
 (add-hook 'org-capture-mode-hook #'org-sm-capture-node-maybe-smimport)
 (add-hook 'org-capture-prepare-finalize-hook #'org-sm-capture-node-prepare-finalize-maybe-abort)
@@ -824,7 +837,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (atomic-change-group
         (org-sm-apiclient-http-ping)
         (org-ov-highlight-blue)
-        (let* ((immediate-finish (not current-prefix-arg))
+        (let* ((org-id-link-to-org-use-id t)
+               (immediate-finish (not current-prefix-arg))
                (parent-id (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
                             (call-interactively 'org-sm-read-point-set)
                             org-sm-node-current-id))
@@ -895,7 +909,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-node-postpone ()
   (interactive)
-  (when-let ((days (org-sm-node-postpone-days-read)))
+  (when-let ((days (org-sm-node-postpone-days-read 1)))
     (org-sm-apiclient-postpone days)))
 
 (defun org-sm-goto-next ()
@@ -937,17 +951,23 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
   (interactive)
   ;(widen)
-  ;TODO WHY DOESNT THIS WORK (org-sm-id-goto org-sm-node-current-id)
+  (org-sm-id-goto org-sm-node-current-id)
   (message "answer called")
   (when (org-sm-apiclient-item-p)
     (message "answering")
     (org-sm-unhide-text)
-                                        ;TODO make it here now display the answer without the "cloze" syntax around, call it in the answer
+    (org-sm-node-current-element-present-as-hidden-non-answer-text org-sm-node-current-id)
     (when org-link-descriptive (org-toggle-link-display))
-    (when-let* ((grade (org-sm-node-grade-read 3)))
-      (message "Grade selected: %s" grade)
-      (org-sm-apiclient-set-grade grade))))
-
+    (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
+    (let* (successfully-graded)
+      (unwind-protect
+          (when-let* ((grade (org-sm-node-grade-read 3)))
+            (message "Grade selected: %s" grade)
+            (org-sm-apiclient-set-grade grade)
+            (setq successfully-graded t))
+        (unless successfully-graded
+          (org-sm-unhide-text)
+          (org-sm-node-current-element-present-as-hidden-cloze-text org-sm-node-current-id))))))
 
 (defun org-sm-unhide-text ()
   "Unhide text. (Same as org-drill-unhide-text)"
