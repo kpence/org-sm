@@ -882,11 +882,12 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (org-show-context)
     t))
 
-(defun org-sm-node-set-priority ()
+(defun org-sm-node-set-priority-at-point ()
   (interactive)
-  (let* ((_ (org-sm-goto-current))
-        (current-priority (string-to-number (org-entry-get (point) "SM_PRIORITY")))
-        (priority (org-sm-node-priority-read current-priority)))
+  (let* ((id (org-roam-id-at-point))
+         (_ (org-sm-apiclient-search-element-id id))
+         (current-priority (string-to-number (org-entry-get (point) "SM_PRIORITY")))
+         (priority (org-sm-node-priority-read current-priority)))
     (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
     (org-sm-apiclient-set-priority (float priority))))
 
@@ -957,7 +958,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (setplist 'org-sm-hidden-text-overlay
           '(invisible t))
 
-(defun org-sm-node-answer ()
+(defun org-sm-node-answer (&optional grade)
   "If current element has id, go to node with id. If current element has no Id, import element using org-capture."
   (interactive)
   (org-sm-id-goto org-sm-node-current-id)
@@ -969,7 +970,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (when org-link-descriptive (org-toggle-link-display))
     (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
     (let* (successfully-graded)
-      (if-let* ((grade (org-sm-node-grade-read)))
+      (if-let* ((grade (or grade (org-sm-node-grade-read))))
           (and (org-sm-apiclient-set-grade grade)
                (message "Grade sent: %s" (+ 1 grade))
                (setq successfully-graded t))
@@ -1069,6 +1070,27 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "ase" 'org-sm-goto-next)
 
 (define-key evil-visual-state-map (kbd "C-x C-x") 'org-sm-node-extract)
+
+
+;(defun org-sm-quick-grade (grade)
+;  (when (and (equal org-sm-node-current-id (org-roam-id-at-point))
+;             (not (org-sm-apiclient-graded-p))
+;             (org-sm-apiclient-ready-to-grade-p)
+;             (org-sm-apiclient-item-p))
+;    (org-sm-node-answer grade)))
+;
+;(defun org-sm-quick-grade-1 () (org-sm-quick-grade 1))
+;(defun org-sm-quick-grade-2 () (org-sm-quick-grade 2))
+;(defun org-sm-quick-grade-3 () (org-sm-quick-grade 3))
+;(defun org-sm-quick-grade-4 () (org-sm-quick-grade 4))
+;(defun org-sm-quick-grade-5 () (org-sm-quick-grade 5))
+;
+;;TODO write a partial function that can be used here
+;(setq org-speed-commands-user (--map-when (equal (car it) "1") '("1" . org-sm-quick-grade-1) org-speed-commands-user))
+;(setq org-speed-commands-user (--map-when (equal (car it) "2") '("2" . org-sm-quick-grade-2) org-speed-commands-user))
+;(setq org-speed-commands-user (--map-when (equal (car it) "3") '("3" . org-sm-quick-grade-3) org-speed-commands-user))
+;(setq org-speed-commands-user (--map-when (equal (car it) "4") '("4" . org-sm-quick-grade-4) org-speed-commands-user))
+;(setq org-speed-commands-user (--map-when (equal (car it) "5") '("5" . org-sm-quick-grade-5) org-speed-commands-user))
 
 (defun org-sm-new-sm-element-with-id (id)
   "Communicates to the SM api server to create a new element with title set to id."
