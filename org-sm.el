@@ -743,7 +743,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-node-export-at-point-interactive ()
   (interactive)
   (let ((priority-s (number-to-string (org-sm-node-priority-read 33)))
-        (type-s (org-sm-node-type-read ":topic")))
+        (type-s (call-interactively 'org-sm-node-type-read)))
     (org-back-to-heading)
     (org-entry-put (point) "SM_PRIORITY" priority-s)
     (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
