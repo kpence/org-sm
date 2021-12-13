@@ -642,6 +642,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (when (and (<= 1 days) (integerp days))
     days)))
   
+(defun org-sm-node-type-read (initial-type)
+  (interactive (list (completing-read "Type: " '(":topic" ":item"))))
+  initial-type)
+
 (defun org-sm-node-priority-read (initial-priority)
   "Prompts user to enter priority"
   (let ((priority (read-number "Enter Priority: " initial-priority)))
@@ -658,18 +662,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-set-tags tags)
       (message "Type tags SET at point"))))
   
-
-(defun org-sm-node-convert-and-export-at-point ()
-  "Converts org entry at point to SM node and exports to supermemo as element"
-  ; TODO verify that you're at a valid org entry at this point
-  (interactive)
-  (org-back-to-heading)
-  (let ((priority (org-sm-node-priority-read 33.3))
-        (type-s (call-interactively 'org-sm-node-element-type-read-s)))
-      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
-      (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
-      (org-sm-node-export-at-point)))
-
 (defun org-sm-node-export-at-point (&optional extract-parent-id)
   "Exports node at point to supermemo as element. If EXTRACT-PARENT-ID is non-nil, it creates an extract."
   (let ((content (buffer-substring-no-properties
@@ -686,10 +678,21 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-entry-put (point) "SM_EXTRACT_PARENT_ID" extract-parent-id))
     (org-sm-apiclient-element-create type)
     (when priority-s
-      (org-sm-apiclient-set-priority (float (string-to-number priority))))
+      (org-sm-apiclient-set-priority (float (string-to-number priority-s))))
     ;TODO (org-sm-apiclient-set-element-content content)
     ;TODO this causes race conditions that are annoying
     (org-sm-apiclient-store-element-id id)))
+
+(defun org-sm-node-convert-and-export-at-point ()
+  "Converts org entry at point to SM node and exports to supermemo as element"
+  ; TODO verify that you're at a valid org entry at this point
+  (interactive)
+  (org-back-to-heading)
+  (let ((priority (org-sm-node-priority-read 33.3))
+        (type-s (call-interactively 'org-sm-node-element-type-read-s)))
+      (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
+      (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
+      (org-sm-node-export-at-point)))
 
 (defun org-sm-capture-node-prepare-finalize-maybe-abort ()
   (when (and org-note-abort
@@ -737,6 +740,15 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (setq org-sm-node-current-id original-current-id)
     (org-sm-apiclient-search-element-id original-current-id)))
 
+(defun org-sm-node-export-at-point-interactive ()
+  (interactive)
+  (let ((priority-s (number-to-string (org-sm-node-priority-read 33)))
+        (type-s (org-sm-node-type-read ":topic")))
+    (org-back-to-heading)
+    (org-entry-put (point) "SM_PRIORITY" priority-s)
+    (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
+    (org-sm-node-export-at-point)))
+
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (plist-get org-capture-plist :element-type)))
     (let* ((original-link (plist-get org-capture-plist :annotation))
@@ -747,7 +759,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
            (priority-s (plist-get org-capture-plist :priority))
            (_ (message "priority is: %s" priority-s))
            (_ (when (plist-get org-capture-plist :ask-priority)
-                (setq priority-s (number-to-string (org-sm-node-priority-read (or priority-s "33")))))))
+                (setq priority-s (number-to-string (org-sm-node-priority-read (string-to-number (or priority-s "33"))))))))
       (message "extract-parent-id: %s" parent-id)
       (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
@@ -1061,13 +1073,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (spacemacs/set-leader-keys
   "ax" 'org-sm-node-extract
   "asc" 'org-sm-goto-current
+  "ase" 'org-sm-node-export-at-point-interactive
   "asg" 'org-sm-read-point-goto
   "asm" 'org-sm-read-point-set
-  "asp" 'org-sm-node-set-priority
+  "asp" 'org-sm-node-set-priority-at-point
   "asr" 'org-sm-node-postpone
   "asn" 'org-sm-goto-next
-  "sn" 'org-sm-goto-next
-  "ase" 'org-sm-goto-next)
+  "sn" 'org-sm-goto-next)
 
 (define-key evil-visual-state-map (kbd "C-x C-x") 'org-sm-node-extract)
 
