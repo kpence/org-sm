@@ -758,12 +758,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
            (_ (insert original-description))
            (parent-id (plist-get org-capture-plist :sm-extract-parent-id))
            (priority-s (plist-get org-capture-plist :priority))
+           (original-content (plist-get org-capture-plist :sm-original-content))
            (_ (message "priority is: %s" priority-s))
            (_ (when (plist-get org-capture-plist :ask-priority)
                 (setq priority-s (number-to-string (org-sm-node-priority-read (string-to-number (or priority-s "33"))))))))
       (message "extract-parent-id: %s" parent-id)
       (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
+      (when original-content
+        (org-with-point-at (org-element-property :contents-end (org-element-at-point))
+          (insert original-content "\n")))
       (org-sm-node-export-at-point parent-id)
       (org-sm-capture-do-to-original-buffer
        '(progn
@@ -826,6 +830,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 ; Add the extract templates
 (add-to-list 'org-capture-templates
+      '("z" "cloze" entry (file "~/org/extracts.org")
+        "* %? (cloze) \n%U\n%a\n\n" :clock-in t :clock-resume t :element-type :item)
       '("x" "extract" entry (file "~/org/extracts.org")
         "* %? (extract) \n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
 
@@ -877,6 +883,52 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                             org-capture-templates)
                   org-capture-templates)))
           (org-capture nil "x"))))
+    (deactivate-mark)))
+
+(defun org-sm-node-generate-cloze ()
+  "TODO Docstring. Remember to make note of the prefix argument for no-immediate-finish"
+  (interactive)
+  (widen)
+  (unwind-protect
+    (when (region-active-p)
+      ;; Group functions together to avoid inconsistent state on quit
+      (atomic-change-group
+        (org-sm-apiclient-http-ping)
+        (org-ov-highlight-blue)
+        (let* ((org-id-link-to-org-use-id t)
+               (immediate-finish (not current-prefix-arg))
+               (parent-id (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
+                            (call-interactively 'org-sm-read-point-set)
+                            org-sm-node-current-id))
+               ;(_ (message "parent id: %s. original-id: %s" parent-id org-sm-node-current-id))
+               (priority (or (org-entry-get (org-id-find parent-id t) "SM_PRIORITY") "33"))
+               (cloze-begin (min (point) (mark)))
+               (cloze-end (max (point) (mark)))
+               (contents-begin (progn
+                                 (org-back-to-heading t)
+                                 (min cloze-begin (point-at-bol 2))))
+               (contents-end (max cloze-end (org-end-of-subtree t)))
+               (content (replace-regexp-in-string ":PROPERTIES:\\(.\\|\n\\)*:END:" "\n"
+                         (concat
+                          (buffer-substring-no-properties contents-begin cloze-begin)
+                          "[[cloze:"
+                          (buffer-substring-no-properties cloze-begin cloze-end)
+                          "][{...}]]"
+                          (buffer-substring-no-properties cloze-end contents-end))))
+               (_ (message "priority is %s" priority))
+               (org-capture-templates
+                (if immediate-finish
+                    (mapcar (lambda (template)
+                              (append template
+                                      (list :immediate-finish t)
+                                      (list :sm-original-content content)
+                                      (list :sm-extract-original-current-id org-sm-node-current-id)
+                                      (list :sm-extract-parent-id parent-id)
+                                      (list :priority priority)
+                                      (when current-prefix-arg (list :ask-priority t))))
+                            org-capture-templates)
+                  org-capture-templates)))
+          (org-capture nil "z"))))
     (deactivate-mark)))
 
 (defun org-sm-node-search-element-id-at-point ()
@@ -980,12 +1032,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (message "answering")
     (org-sm-unhide-text)
     (org-sm-node-current-element-present-as-hidden-non-answer-text org-sm-node-current-id)
-    ; TODO I need to save-excursion go to the close
-    ;(when org-link-descriptive (org-toggle-link-display))
-    ;(save-excursion
-    ;  (when (re-search-forward "\\[\\[cloze:.*\\]\\]")
-    ;    (message "found point!!")
-    ;    (remove-text-properties (match-beginning 0) (match-end 0) '(org-link))))
     (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
     (let* (successfully-graded)
       (if-let* ((grade (or grade (org-sm-node-grade-read))))
@@ -1095,6 +1141,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (spacemacs/set-leader-keys
   "ax" 'org-sm-node-extract
+  "az" 'org-sm-node-generate-cloze
   "asc" 'org-sm-goto-current
   "ase" 'org-sm-node-export-at-point-interactive
   "asg" 'org-sm-read-point-goto
