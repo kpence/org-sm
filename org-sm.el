@@ -615,6 +615,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
      "goto-first-element-with-comment"
      (list (cons "comment" (princ id))))))
 
+(require 'org-ov-highlighter)
 (require 'org-web-tools)
 (require 'org-roam-node)
 
@@ -823,7 +824,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (add-hook 'org-capture-after-finalize-hook #'org-sm-capture-node-after-finalize-maybe-hide-cloze-text)
 (add-hook 'org-capture-before-finalize-hook #'org-sm-capture-node-before-finalize-maybe-back-to-original-element)
 
-;; Add the extract templates
+; Add the extract templates
 (add-to-list 'org-capture-templates
       '("x" "extract" entry (file "~/org/extracts.org")
         "* %? (extract) \n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
@@ -979,7 +980,12 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (message "answering")
     (org-sm-unhide-text)
     (org-sm-node-current-element-present-as-hidden-non-answer-text org-sm-node-current-id)
-    (when org-link-descriptive (org-toggle-link-display))
+    ; TODO I need to save-excursion go to the close
+    ;(when org-link-descriptive (org-toggle-link-display))
+    ;(save-excursion
+    ;  (when (re-search-forward "\\[\\[cloze:.*\\]\\]")
+    ;    (message "found point!!")
+    ;    (remove-text-properties (match-beginning 0) (match-end 0) '(org-link))))
     (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
     (let* (successfully-graded)
       (if-let* ((grade (or grade (org-sm-node-grade-read))))
@@ -1035,11 +1041,28 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-maybe-capture-buffer-finalize ()
   "If buffer at point is a capture buffer, finalize it."
   (when (string-prefix-p "CAPTURE" (buffer-name (current-buffer))) (org-capture-finalize)))
+
+(defun org-sm-node-show-at-current ()
+  "Show and unfold the current org entry fully, and if the node is an item element, then hide the subtree headings"
+  (outline-show-all))
+  ;TODO(let ((itemp (equal ":item" (org-entry-get (point) "SM_ELEMENT_TYPE"))))
+  ;  (if itemp
+  ;      (outline-show-entry)
+  ;    (outline-show-all))))
+
+(org-link-set-parameters
+ "cloze"
+ :follow (lambda (path) (message "You clicked me."))
+ :export (lambda (path desc backend) (message "TODO You exported me."))
+ :face '(:foreground "yellow")
+ :help-echo "Click me for a message."
+ :display '(org-sm-link))
   
 (add-hook 'org-after-todo-state-change-hook 'org-sm-node-maybe-dismiss-at-point 'append)
 (advice-add 'org-sm-goto-next :before #'org-sm-maybe-capture-buffer-finalize)
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-narrow-to-subtree)
-(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'outline-show-all)
+;(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'outline-show-all)
+(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-sm-node-show-at-current)
 (advice-add 'org-sm-node-extract :after #'outline-show-all)
 (advice-add 'org-sm-read-point-goto :before #'org-sm-unhide-text)
 ;NEXT Make an advice that clocks in next supermemo elements
@@ -1082,7 +1105,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   "sn" 'org-sm-goto-next)
 
 (define-key evil-visual-state-map (kbd "C-x C-x") 'org-sm-node-extract)
-
 
 ;(defun org-sm-quick-grade (grade)
 ;  (when (and (equal org-sm-node-current-id (org-roam-id-at-point))
