@@ -669,7 +669,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                   (org-element-property :contents-begin (org-element-at-point))
                   (org-element-property :contents-end (org-element-at-point))))
         ;(title (org-element-property :title (org-element-at-point)))
-        (id (or (org-roam-id-at-point) (org-id-get-create)))
+        (id (org-sm-id-at-point-or-create))
         (priority-s (org-entry-get (point) "SM_PRIORITY"))
         (type (intern (org-entry-get (point) "SM_ELEMENT_TYPE"))))
     (message "id: %s" id)
@@ -757,6 +757,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
             (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*?\\)\\]\\]" "\\2" original-link))
            (_ (insert original-description))
            (parent-id (plist-get org-capture-plist :sm-extract-parent-id))
+           (new-id (plist-get org-capture-plist :sm-extract-new-id))
            (priority-s (plist-get org-capture-plist :priority))
            (original-content (plist-get org-capture-plist :sm-original-content))
            (_ (message "priority is: %s" priority-s))
@@ -765,6 +766,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (message "extract-parent-id: %s" parent-id)
       (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
+      (org-entry-put (point) "" (symbol-name type))
+      (when new-id ()) ; TODO Set the new id here!
       (when original-content
         (org-with-point-at (org-element-property :contents-end (org-element-at-point))
           (insert original-content "\n")))
@@ -831,7 +834,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ; Add the extract templates
 (add-to-list 'org-capture-templates
       '("z" "cloze" entry (file "~/org/extracts.org")
-        "* %? (cloze) \n%U\n%a\n\n" :clock-in t :clock-resume t :element-type :item)
+        "* %? (cloze) \n%U\n%a\n\n" :clock-in t :clock-resume t :element-type :item))
+(add-to-list 'org-capture-templates
       '("x" "extract" entry (file "~/org/extracts.org")
         "* %? (extract) \n%U\n%a\n\n%i\n" :clock-in t :clock-resume t :element-type :topic))
 
@@ -865,7 +869,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-ov-highlight-blue)
         (let* ((org-id-link-to-org-use-id t)
                (immediate-finish (not current-prefix-arg))
-               (parent-id (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
+               (parent-id (let ((org-sm-node-current-id (org-sm-id-at-point-or-create)))
                             (call-interactively 'org-sm-read-point-set)
                             org-sm-node-current-id))
                ;(_ (message "parent id: %s. original-id: %s" parent-id org-sm-node-current-id))
@@ -897,7 +901,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-ov-highlight-blue)
         (let* ((org-id-link-to-org-use-id t)
                (immediate-finish (not current-prefix-arg))
-               (parent-id (let ((org-sm-node-current-id (or (org-roam-id-at-point) (org-id-get-create))))
+               (parent-id (let ((org-sm-node-current-id (org-sm-id-at-point-or-create)))
                             (call-interactively 'org-sm-read-point-set)
                             org-sm-node-current-id))
                ;(_ (message "parent id: %s. original-id: %s" parent-id org-sm-node-current-id))
@@ -936,6 +940,12 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (when-let ((id (org-id-get)))
     (message "id: %s" id)
     (org-sm-apiclient-search-element-id id)))
+
+(defun org-sm-id-at-point-or-create ()
+  (let ((org-roam-id (org-roam-id-at-point)))
+    (if (or (not org-roam-id) (eq (org-find-entry-with-id org-roam-id) 1))
+        (org-id-get-create)
+      org-roam-id)))
 
 (defun org-sm-id-goto (id)
   ;TODO look into ignore-errors
