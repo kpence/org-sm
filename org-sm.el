@@ -767,7 +767,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
       (org-entry-put (point) "" (symbol-name type))
-      (when new-id ()) ; TODO Set the new id here!
+      (when new-id
+        (org-entry-put (point) "ID" new-id))
       (when original-content
         (org-with-point-at (org-element-property :contents-end (org-element-at-point))
           (insert original-content "\n")))
