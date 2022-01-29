@@ -684,16 +684,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     ;TODO this causes race conditions that are annoying
     (org-sm-apiclient-store-element-id id)))
 
-(defun org-sm-node-convert-and-export-at-point ()
+(defun org-sm-node-convert-and-export-at-point (&optional extract-parent-id priority type-s force-new-id)
   "Converts org entry at point to SM node and exports to supermemo as element"
   ; TODO verify that you're at a valid org entry at this point
-  (interactive)
-  (org-back-to-heading)
-  (let ((priority (org-sm-node-priority-read 33.3))
-        (type-s (call-interactively 'org-sm-node-element-type-read-s)))
+  (let ((priority (or priority (org-sm-node-priority-read 33.3)))
+        (type-s (or type-s (call-interactively 'org-sm-node-element-type-read-s))))
+      (org-back-to-heading t)
       (org-entry-put (point) "SM_PRIORITY" (number-to-string priority))
       (org-entry-put (point) "SM_ELEMENT_TYPE" type-s)
-      (org-sm-node-export-at-point)))
+      (when force-new-id (org-id-get-create))
+      (org-sm-node-export-at-point extract-parent-id)))
 
 (defun org-sm-capture-node-prepare-finalize-maybe-abort ()
   (when (and org-note-abort
@@ -752,9 +752,11 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (plist-get org-capture-plist :element-type)))
+    (message "org-sm-capture-node-maybe-create has been called %s" org-capture-plist) 
     (let* ((original-link (plist-get org-capture-plist :annotation))
            (original-description
-            (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*?\\)\\]\\]" "\\2" original-link))
+            (or (plist-get org-capture-plist :sm-extract-new-title)
+                (replace-regexp-in-string "\\(\\[\\[.*\\]\\[\\)\\(.*?\\)\\]\\]" "\\2" original-link)))
            (_ (insert original-description))
            (parent-id (plist-get org-capture-plist :sm-extract-parent-id))
            (new-id (plist-get org-capture-plist :sm-extract-new-id))
@@ -766,7 +768,6 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (message "extract-parent-id: %s" parent-id)
       (org-entry-put (point) "SM_PRIORITY" priority-s)
       (org-entry-put (point) "SM_ELEMENT_TYPE" (symbol-name type))
-      (org-entry-put (point) "" (symbol-name type))
       (when new-id
         (org-entry-put (point) "ID" new-id))
       (when original-content
@@ -978,7 +979,8 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (let ((mystate (or (and (fboundp 'org-state)
                           state)
                      (nth 2 (org-heading-components)))))
-    (when (and (member "drill" (org-get-tags))
+    (when (and (org-id-get) ; confirm it has an id
+               (member "drill" (org-get-tags))
                (message "Found drill in tags")
                (equal mystate "DONE")
                (message "Found DONE in todo state")
@@ -1148,7 +1150,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ;(global-set-key (kbd "C-c s") 'org-sm-goto-current)
 ;(global-set-key (kbd "C-c S") 'org-sm-goto-next)
 ;;(global-set-key (kbd "C-c S") 'org-sm-node-search-element-id-at-point)
-;(global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point) ; TODO this is just fo rtesting, change key sym later
+;(global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point-at-point) ; TODO this is just fo rtesting, change key sym later
 
 (spacemacs/set-leader-keys
   "ax" 'org-sm-node-extract
