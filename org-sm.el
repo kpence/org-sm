@@ -471,7 +471,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-sm-apiclient-http-ping)
         ;(org-ov-highlight-blue)
         (let* ((org-id-link-to-org-use-id t)
-               (immediate-finish (eq current-prefix-arg 2))
+               (immediate-finish (not (eq current-prefix-arg 2)))
                (create-under-subtree (eq current-prefix-arg 1))
                (parent-id (let ((org-sm-node-current-id (org-sm-id-at-point-or-create)))
                             (call-interactively 'org-sm-read-point-set)
