@@ -497,7 +497,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (deactivate-mark)))
 
 (defun org-sm-node-generate-cloze ()
-  "TODO Docstring. Remember to make note of the prefix argument for no-immediate-finish"
+  "TODO Docstring. Use 1 prefix argument for putting the extract in the subtree. Use 2 prefix arguments to specify the priority. Use 3 prefix arguments for no-immediate-finish."
   (interactive)
   (widen)
   (unwind-protect
@@ -507,7 +507,9 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-sm-apiclient-http-ping)
         ;(org-ov-highlight-blue)
         (let* ((org-id-link-to-org-use-id t)
-               (immediate-finish (not current-prefix-arg))
+               (current-prefix-arg- (when current-prefix-arg (car current-prefix-arg)))
+               (immediate-finish (not (eq current-prefix-arg- 32)))
+               (create-under-subtree (eq current-prefix-arg- 4))
                (parent-id (let ((org-sm-node-current-id (org-sm-id-at-point-or-create)))
                             (call-interactively 'org-sm-read-point-set)
                             org-sm-node-current-id))
@@ -533,6 +535,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                               (append template
                                       (list :immediate-finish t)
                                       (list :sm-original-content content)
+                                      (list :sm-extract-create-under-subtree create-under-subtree)
                                       (list :sm-extract-original-current-id org-sm-node-current-id)
                                       (list :sm-extract-parent-id parent-id)
                                       (list :priority priority)
