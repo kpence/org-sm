@@ -373,7 +373,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (org-sm-node-export-at-point parent-id)
       (when create-under-subtree
         (org-cut-subtree)
-        (org-id-goto parent-id)
+        (org-id-goto parent-id (1+ (org-current-level)))
         (org-paste-subtree))
       (org-sm-capture-do-to-original-buffer
        '(progn
@@ -461,7 +461,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (user-error "Buffer %S not alive." orig-buf-name))))
 
 (defun org-sm-node-extract ()
-  "TODO Docstring. Use 1 prefix argument for putting the extract in the subtree. Use 2 prefix arguments for no-immediate-finish."
+  "TODO Docstring. Use 1 prefix argument for putting the extract in the subtree. Use 2 prefix arguments to specify the priority. Use 3 prefix arguments for no-immediate-finish."
   (interactive)
   (widen)
   (unwind-protect
@@ -471,14 +471,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-sm-apiclient-http-ping)
         ;(org-ov-highlight-blue)
         (let* ((org-id-link-to-org-use-id t)
-               (immediate-finish (not (eq current-prefix-arg 2)))
-               (create-under-subtree (eq current-prefix-arg 1))
+               (current-prefix-arg- (when current-prefix-arg (car current-prefix-arg)))
+               (immediate-finish (not (eq current-prefix-arg- 32)))
+               (create-under-subtree (eq current-prefix-arg- 4))
                (parent-id (let ((org-sm-node-current-id (org-sm-id-at-point-or-create)))
                             (call-interactively 'org-sm-read-point-set)
                             org-sm-node-current-id))
                ;(_ (message "parent id: %s. original-id: %s" parent-id org-sm-node-current-id))
                (priority (or (org-entry-get (org-id-find parent-id t) "SM_PRIORITY") "33"))
                (_ (message "priority is %s" priority))
+               (_ (message "create-under-subtree is %s. current-prefix-arg is %s" create-under-subtree current-prefix-arg))
                (org-capture-templates
                 (if immediate-finish
                     (mapcar (lambda (template)
@@ -488,7 +490,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                                       (list :sm-extract-original-current-id org-sm-node-current-id)
                                       (list :sm-extract-parent-id parent-id)
                                       (list :priority priority)
-                                      (when current-prefix-arg (list :ask-priority t))))
+                                      (when (eq current-prefix-arg- 16) (list :ask-priority t))))
                             org-capture-templates)
                   org-capture-templates)))
           (org-capture nil "x"))))
