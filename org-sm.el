@@ -371,13 +371,14 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
         (org-with-point-at (org-element-property :contents-end (org-element-at-point))
           (insert original-content "\n")))
       (org-sm-node-export-at-point parent-id)
-      (when create-under-subtree
-        (org-cut-subtree)
-        (org-id-goto parent-id (1+ (org-current-level)))
-        (org-paste-subtree))
+      (save-excursion
+        (when create-under-subtree
+          (org-cut-subtree)))
       (org-sm-capture-do-to-original-buffer
        '(progn
-          (deactivate-mark))))))
+          (deactivate-mark)
+          (when create-under-subtree
+            (org-paste-subtree (1+ (org-current-level)))))))))
 
 (defun org-sm-capture-node-maybe-smimport ()
   (when-let* ((element-info (org-capture-get :sm-import-element-info))
