@@ -223,7 +223,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
    (list
     (completing-read "Choose Element Type: " '(":topic" ":item"))))
   type-s)
-  
+
 (defun org-sm-node-grade-read ()
   "Prompts user to enter grade"
   (let ((input nil))
@@ -231,13 +231,13 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
                       (list ?1 ?2 ?3 ?4 ?5 7))))
     (unless (eq input 7)
       (- input ?1))))
-  
+
 (defun org-sm-node-postpone-days-read (initial-days)
   "Prompts user to enter days"
   (let ((days (read-number "Enter New Interval (days): " initial-days)))
     (when (and (<= 1 days) (integerp days))
     days)))
-  
+
 (defun org-sm-node-type-read (initial-type)
   (interactive (list (completing-read "Type: " '(":topic" ":item"))))
   initial-type)
@@ -257,7 +257,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
       (add-to-list 'tags "drill")
       (org-set-tags tags)
       (message "Type tags SET at point"))))
-  
+
 (defun org-sm-node-export-at-point (&optional extract-parent-id)
   "Exports node at point to supermemo as element. If EXTRACT-PARENT-ID is non-nil, it creates an extract."
   (let ((content (buffer-substring-no-properties
@@ -296,7 +296,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (org-sm-apiclient-dismiss)))
 
 (defun org-sm-node-current-element-present-as-hidden-non-answer-text (id)
-  (message "hiding item cloze")
+  (message "hiding item cloze.")
   (org-sm-unhide-text)
   (widen)
   (org-sm-id-goto id)
@@ -309,7 +309,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
      (org-sm-hide-region cloze-end (+ 3 cloze-description-end)))))
 
 (defun org-sm-node-current-element-present-as-hidden-cloze-text (id)
-  (message "hiding item cloze")
+  (message "hiding item cloze present as hidden cloze text")
   (widen)
   (org-sm-unhide-text)
   (org-sm-id-goto id)
@@ -320,10 +320,11 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
           (cloze-description-end (string-match (regexp-quote "]]") (buffer-string) cloze-end)))
      (org-sm-hide-region (+ 1 cloze-beg) cloze-end)
      (org-sm-hide-region (+ 1 cloze-description-end) (+ 3 cloze-description-end)))))
-  
+
 (defun org-sm-capture-node-after-finalize-maybe-hide-cloze-text ()
   ;TODO finish the docstring which describes what this is doing because it's confusing as fuck
   "This fun is waiting for the immediate-finish org-capture for importing items to finish so that it can zip to the item in the file buffer and set the overlays for the item."
+  (message "org-sm-capture-node-after-finalize-maybe-hide-cloze-text called")
   (when-let ((_ (and (org-capture-get :sm-import-item)
                      (org-capture-get :immediate-finish)))
              (id (org-capture-get :sm-import-id)))
@@ -347,7 +348,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 
 (defun org-sm-capture-node-maybe-create ()
   (when-let ((type (plist-get org-capture-plist :element-type)))
-    (message "org-sm-capture-node-maybe-create has been called %s" org-capture-plist) 
+    (message "org-sm-capture-node-maybe-create has been called %s" org-capture-plist)
     (let* ((original-link (plist-get org-capture-plist :annotation))
            (original-description
             (or (plist-get org-capture-plist :sm-extract-new-title)
@@ -452,7 +453,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ;TODO ^ for this read this: https://www.gnu.org/software/emacs/manual/html_node/org/Handling-Links.html
 ;TODO To fix this, I might need to do something to org-store-link
 ;TODO It's really important that these links *just work*
- 
+
 (defun org-sm-capture-do-to-original-buffer (fn)
   "Capture the active region of the pdf-view buffer."
   (let* ((orig-buf-name (plist-get org-capture-plist :original-buffer))
@@ -610,18 +611,21 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   (when-let ((days (org-sm-node-postpone-days-read 1)))
     (org-sm-apiclient-postpone days)))
 
-(defun org-sm-goto-next ()
-  (interactive)
+(defun org-sm-goto-next (&optional grade)
   (if (and (not (org-sm-apiclient-graded-p))
            (org-sm-apiclient-ready-to-grade-p)
            (org-sm-apiclient-item-p))
-      (org-sm-node-answer)
+      (org-sm-node-answer grade)
     (org-sm-apiclient-next-repetition)
     (message "next rep")
     (org-sm-apiclient-current-repetition)
     (call-interactively 'org-sm-node-goto-element-id-or-smimport)
     (evil--jumps-push)
     (setq org-sm-node-current-id (org-roam-id-at-point)))) ; TODO should i make this rely on org-roam?
+
+(defun org-sm-goto-next-interactive ()
+  (interactive)
+  (org-sm-goto-next))
 
 (defun org-sm-read-point-goto ()
   (interactive)
@@ -654,6 +658,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (message "answering")
     (org-sm-unhide-text)
     (org-sm-node-current-element-present-as-hidden-non-answer-text org-sm-node-current-id)
+    (message "foobasr")
     (message "advice should have been aded!! %s" (ad-get-advice-info 'keyboard-quit))
     (let* (successfully-graded)
       (if-let* ((grade (or grade (org-sm-node-grade-read))))
@@ -706,7 +711,7 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
     (when (and itemp (not should-import))
       (org-sm-node-current-element-present-as-hidden-cloze-text sm-element-id))))
 
-(defun org-sm-maybe-capture-buffer-finalize ()
+(defun org-sm-maybe-capture-buffer-finalize (&optional junk)
   "If buffer at point is a capture buffer, finalize it."
   (when (string-prefix-p "CAPTURE" (buffer-name (current-buffer))) (org-capture-finalize)))
 
@@ -718,16 +723,16 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
   ;      (outline-show-entry)
   ;    (outline-show-all))))
 
-(org-link-set-parameters
- "cloze"
- :follow (lambda (path) (message "You clicked me."))
- :export (lambda (path desc backend) (message "TODO You exported me."))
- :face '(:foreground "yellow")
- :help-echo "Click me for a message."
- :display '(org-sm-link))
-  
+;(org-link-set-parameters
+; "cloze"
+; :follow (lambda (path) (message "You clicked me."))
+; :export (lambda (path desc backend) (message "TODO You exported me."))
+; :face '(:foreground "yellow")
+; :help-echo "Click me for a message."
+; :display '(org-sm-link))
+
 (add-hook 'org-after-todo-state-change-hook 'org-sm-node-maybe-dismiss-at-point 'append)
-(advice-add 'org-sm-goto-next :before #'org-sm-maybe-capture-buffer-finalize)
+(advice-add 'org-sm-goto-next-interactive :before #'org-sm-maybe-capture-buffer-finalize)
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-narrow-to-subtree)
 ;(advice-add 'org-sm-node-goto-element-id-or-smimport :after #'outline-show-all)
 (advice-add 'org-sm-node-goto-element-id-or-smimport :after #'org-sm-node-show-at-current)
@@ -761,17 +766,28 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 ;;(global-set-key (kbd "C-c S") 'org-sm-node-search-element-id-at-point)
 ;(global-set-key (kbd "C-c X") 'org-sm-node-convert-and-export-at-point-at-point) ; TODO this is just fo rtesting, change key sym later
 
-(spacemacs/set-leader-keys
-  "ax" 'org-sm-node-extract
-  "az" 'org-sm-node-generate-cloze
-  "asc" 'org-sm-goto-current
-  "ase" 'org-sm-node-export-at-point-interactive
-  "asg" 'org-sm-read-point-goto
-  "asm" 'org-sm-read-point-set
-  "asp" 'org-sm-node-set-priority-at-point
-  "asr" 'org-sm-node-postpone
-  "asn" 'org-sm-goto-next
-  "sn" 'org-sm-goto-next)
+(define-key evil-visual-state-map (kbd "SPC a x") 'org-sm-node-extract)
+(define-key evil-visual-state-map (kbd "SPC a z") 'org-sm-node-generate-cloze)
+(define-key evil-normal-state-map (kbd "SPC a s c") 'org-sm-goto-current)
+(define-key evil-normal-state-map (kbd "SPC a s e") 'org-sm-node-export-at-point-interactive)
+(define-key evil-normal-state-map (kbd "SPC a s g") 'org-sm-read-point-goto)
+(define-key evil-normal-state-map (kbd "SPC a s m") 'org-sm-read-point-set)
+(define-key evil-normal-state-map (kbd "SPC a s p") 'org-sm-node-set-priority-at-point)
+(define-key evil-normal-state-map (kbd "SPC a s r") 'org-sm-node-postpone)
+(define-key evil-normal-state-map (kbd "SPC a s n") 'org-sm-goto-next-interactive)
+(define-key evil-normal-state-map (kbd "SPC s n") 'org-sm-goto-next-interactive)
+;; TODO nocheckin this has been deprecated due to its use of spacemacs functions
+;;(spacemacs/set-leader-keys
+;;  "ax" 'org-sm-node-extract
+;;  "az" 'org-sm-node-generate-cloze
+;;  "asc" 'org-sm-goto-current
+;;  "ase" 'org-sm-node-export-at-point-interactive
+;;  "asg" 'org-sm-read-point-goto
+;;  "asm" 'org-sm-read-point-set
+;;  "asp" 'org-sm-node-set-priority-at-point
+;;  "asr" 'org-sm-node-postpone
+;;  "asn" 'org-sm-goto-next
+;;  "sn" 'org-sm-goto-next)
 
 (define-key evil-visual-state-map (kbd "C-x C-x") 'org-sm-node-extract)
 
@@ -798,5 +814,3 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
 (defun org-sm-new-sm-element-with-id (id)
   "Communicates to the SM api server to create a new element with title set to id."
   ())
-
-
