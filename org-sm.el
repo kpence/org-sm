@@ -318,8 +318,10 @@ ENTITY is a list, is default empty. Headers is default '((\"Content-Type\" . \"a
           (cloze-beg (string-match (regexp-quote "[[cloze:") (buffer-string) org-entry-beg))
           (cloze-end (+ 3 (string-match (regexp-quote "]") (buffer-string) cloze-beg)))
           (cloze-description-end (string-match (regexp-quote "]]") (buffer-string) cloze-end)))
-     (org-sm-hide-region (+ 1 cloze-beg) cloze-end)
-     (org-sm-hide-region (+ 1 cloze-description-end) (+ 3 cloze-description-end)))))
+     (if (not cloze-beg)
+         (message "Warning, cloze syntax doesn't exist in newly imported item!")
+       (org-sm-hide-region (+ 1 cloze-beg) cloze-end)
+       (org-sm-hide-region (+ 1 cloze-description-end) (+ 3 cloze-description-end))))))
 
 (defun org-sm-capture-node-after-finalize-maybe-hide-cloze-text ()
   ;TODO finish the docstring which describes what this is doing because it's confusing as fuck
